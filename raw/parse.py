@@ -13,6 +13,7 @@ MD_TMPL = """# -*- coding: utf-8 -*-
 [core]
 name = {}
 level = family
+{}
 
 [classification]
 
@@ -40,8 +41,6 @@ def level(e):
 
 
 def span_and_sup(e):
-    # must stop lookin for text at <ul>
-    # tex an also be in font!
     span, sup = '', ''
 
     for node in etree.ElementDepthFirstIterator(e):
@@ -53,6 +52,18 @@ def span_and_sup(e):
             else:
                 span += node.text
     return re.sub(r'\s+', ' ', span).strip(), sup
+
+
+def get_text(node):
+    t = ''
+    #for node in etree.ElementDepthFirstIterator(e):
+    for e in node.xpath('child::node()'):
+        if not getattr(e, 'tag', None):
+            t += str(e)
+        else:
+            for ee in node:
+                t += get_text(ee)
+    return re.sub(r'\s+', ' ', t).strip()
 
 
 def names(n):
@@ -75,6 +86,15 @@ def parse(p):
         shutil.rmtree(out)
     out.mkdir()
 
+    footnotes = {}
+    for div in body.xpath('.//div'):
+        if div.get('id'):
+            match = re.fullmatch('sdfootnote([0-9]+)', div.get('id'))
+            if match:
+                t = get_text(div)
+                no = match.groups()[0]
+                footnotes[no] = re.sub('^' + re.escape(no), '', t)
+
     currdir, currlevel = out, 0
     for li in body.xpath('.//li'):
         l = level(li)
@@ -86,11 +106,12 @@ def parse(p):
         text, fn = span_and_sup(li)
         gc = glottocode(text)
         if not text.startswith('['):
-            #print('{}{} {} {}'.format('  ' * l, gc, text, fn))
             currdir.joinpath(gc).mkdir()
-            currdir.joinpath(gc, 'md.ini').write_text(MD_TMPL.format(*names(text)), encoding='utf8')
-        #if text.startswith('Caspian'):
-        #    break
+            name, alt = names(text)
+            fntext = ''
+            if fn and fn in footnotes:
+                fntext = 'comment = {}'.format(footnotes[fn])
+            currdir.joinpath(gc, 'md.ini').write_text(MD_TMPL.format(name, fntext, alt), encoding='utf8')
         currdir = currdir / gc
         currlevel = l
 
